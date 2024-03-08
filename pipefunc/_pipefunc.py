@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import (
     TYPE_CHECKING,
     Any,
+    Callable,
     Generator,
     Generic,
     Iterable,
@@ -33,6 +34,7 @@ from typing import (
     Tuple,
     TypeVar,
     Union,
+    get_type_hints,
 )
 
 import cloudpickle
@@ -149,7 +151,6 @@ class PipelineFunction(Generic[T]):
                 _default_output_picker,
                 output_name=self.output_name,
             )
-
         self._profile = profile
         self.renames: dict[str, str] = renames or {}
         self._inverse_renames: dict[str, str] = {v: k for k, v in self.renames.items()}
@@ -201,6 +202,19 @@ class PipelineFunction(Generic[T]):
             self.profiling_stats = ProfilingStats()
         else:
             self.profiling_stats = None
+
+    @property
+    def parameter_annotations(self) -> dict[str, Any]:
+        """Return the type annotations of the wrapped function's parameters."""
+        type_hints = get_type_hints(self.func)
+        return {
+            self.renames.get(k, k): v for k, v in type_hints.items() if k != "return"
+        }
+
+    @property
+    def output_annotation(self) -> Any:
+        """Return the type annotation of the wrapped function's output."""
+        return get_type_hints(self.func).get("return", Any)
 
     def _maybe_profiler(self) -> contextlib.AbstractContextManager:
         """Maybe get profiler.
