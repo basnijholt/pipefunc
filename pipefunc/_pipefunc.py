@@ -56,6 +56,8 @@ else:
 if TYPE_CHECKING:
     import holoviews as hv
 
+    from pipefunc._sweep import Sweep
+
 T = TypeVar("T", bound=Callable[..., Any])
 _OUTPUT_TYPE = Union[str, Tuple[str, ...]]
 _CACHE_KEY_TYPE: TypeAlias = Tuple[
@@ -543,6 +545,7 @@ class Pipeline:
             self.add(f)
         self._graph = None
         self._arg_combinations: dict[_OUTPUT_TYPE, set[tuple[str, ...]]] = {}
+        self._reducers: dict[tuple[Pipeline, _OUTPUT_TYPE], tuple[str, Callable]] = {}
         self.cache: LRUCache | HybridCache
 
         if cache == "shared":
@@ -1422,6 +1425,71 @@ class Pipeline:
                 )
                 pipeline_str += f"    Possible input arguments: {input_args}\n"
         return pipeline_str
+
+    def connect(
+        self,
+        other: Pipeline,
+        output_name: _OUTPUT_TYPE,
+        input_name: str,
+        reducer: Callable[[Any], Any],
+    ) -> None:
+        """Connect another pipeline to this pipeline with a reducer.
+
+        Parameters
+        ----------
+        other
+            The other pipeline to connect to this pipeline.
+        output_name
+            The name of the output from the other pipeline.
+        input_name
+            The name of the input in this pipeline.
+        reducer
+            The reducer function to apply to the output of the other pipeline.
+
+        """
+        self._reducers[(other, output_name)] = (input_name, reducer)
+
+    def evaluate_sweep(
+        self,
+        output_name: _OUTPUT_TYPE,
+        sweep: Sweep,
+    ) -> list[Any]:
+        """Evaluate the pipeline for each combination of parameters in the sweep.
+
+        Parameters
+        ----------
+        output_name
+            The name of the output to evaluate.
+        sweep
+            The sweep object containing the parameter combinations.
+
+        Returns
+        -------
+        list[Any]
+            A list of results, one for each combination of parameters in the sweep.
+
+        """
+        results = []
+        connected_outputs = {}
+        for (other, other_output_name), (
+            input_name,
+            _reducer,
+        ) in self._reducers.items():
+            other_sweep = sweep.filtered_sweep(
+                other.arg_combinations(other_output_name, root_args_only=True),
+            )
+            connected_outputs[input_name] = [
+                other(other_output_name, **combo) for combo in other_sweep.generate()
+            ]
+
+        for combo in sweep.generate():
+            kwargs = combo.copy()
+            for input_name, output in connected_outputs.items():
+                _, reducer = self._reducers[(other, other_output_name)]
+                kwargs[input_name] = reducer(output)
+            result = self(output_name, **kwargs)
+            results.append(result)
+        return results
 
 
 def _wrap_dict_to_tuple(
