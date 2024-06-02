@@ -18,7 +18,8 @@ import functools
 import inspect
 import os
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any, Generic, TypeAlias, TypeVar, Union
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, Generic, TypeAlias, TypeVar, Union, get_type_hints
 
 import cloudpickle
 
@@ -297,6 +298,17 @@ class PipeFunc(Generic[T]):
             self.profiling_stats = ProfilingStats()
         else:
             self.profiling_stats = None
+
+    @functools.cached_property
+    def parameter_annotations(self) -> dict[str, Any]:
+        """Return the type annotations of the wrapped function's parameters."""
+        type_hints = get_type_hints(self.func)
+        return {self.renames.get(k, k): v for k, v in type_hints.items() if k != "return"}
+
+    @functools.cached_property
+    def output_annotation(self) -> Any:
+        """Return the type annotation of the wrapped function's output."""
+        return get_type_hints(self.func).get("return", Any)
 
     def _maybe_profiler(self) -> contextlib.AbstractContextManager:
         """Maybe get profiler.

@@ -499,6 +499,26 @@ def test_full_output(cache, tmp_path: Path):
         assert len(list(cache_dir.glob("*.pkl"))) == 3
 
 
+def test_pipeline_function_annotations():
+    def add_numbers(a: int, b: float) -> tuple[int, float]:
+        return a + 1, b + 1.0
+
+    add_func = PipeFunc(
+        add_numbers,
+        output_name=("a_plus_one", "b_plus_one"),
+        renames={"a": "x", "b": "y"},
+    )
+
+    assert add_func.parameter_annotations == {"x": int, "y": float}
+    assert add_func.output_annotation == tuple[int, float]
+
+    result = add_func(x=1, y=2.0)
+    assert result == (2, 3.0)
+
+    assert str(add_func) == "add_numbers(...) → a_plus_one, b_plus_one"
+    assert repr(add_func) == "PipeFunc(add_numbers)"
+
+
 def test_lazy_pipeline():
     @pipefunc(output_name="c")
     def f1(a, b):
