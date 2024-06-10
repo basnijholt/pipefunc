@@ -212,14 +212,32 @@ def visualize_holoviews(graph: nx.DiGraph, *, show: bool = False) -> hv.Graph | 
     import holoviews as hv
     import numpy as np
 
+    from pipefunc._pipefunc import PipeFunc
+    from pipefunc._pipeline import _Bound
+
     hv.extension("bokeh")
     pos = _get_graph_layout(graph)
 
     # Extract node positions and create a list of nodes
     x, y = np.array([pos[node] for node in graph.nodes]).T
     node_indices = range(len(graph.nodes))
-    node_types = ["str" if isinstance(node, str) else "func" for node in graph.nodes]
-    node_labels = [str(node) for node in graph.nodes]
+    node_types = []
+    node_labels = []
+    mapspecs = []
+    for node in graph.nodes:
+        if isinstance(node, str):
+            node_types.append("str")
+            node_labels.append(node)
+            mapspecs.append(None)
+        elif isinstance(node, PipeFunc):
+            node_types.append("func")
+            node_labels.append(str(node))
+            mapspecs.append(node.mapspec)
+        else:
+            assert isinstance(node, _Bound)
+            node_types.append("bound")
+            node_labels.append(node.name)
+            mapspecs.append(None)
 
     # Create a dictionary for quick lookup of indices
     node_index_dict = {node: index for index, node in enumerate(graph.nodes)}
@@ -231,8 +249,8 @@ def visualize_holoviews(graph: nx.DiGraph, *, show: bool = False) -> hv.Graph | 
 
     # Create Nodes and Graph
     nodes = hv.Nodes(
-        (x, y, node_indices, node_labels, node_types),
-        vdims=["label", "type"],
+        (x, y, node_indices, node_labels, node_types, mapspecs),
+        vdims=["label", "type", "mapspec"],
     )
     graph = hv.Graph((edges, nodes))
 
@@ -241,9 +259,15 @@ def visualize_holoviews(graph: nx.DiGraph, *, show: bool = False) -> hv.Graph | 
         "height": 800,
         "padding": 0.1,
         "xaxis": None,
+        "directed": True,
+        "node_size": 50,
         "yaxis": None,
         "node_color": hv.dim("type").categorize(
-            {"str": "lightgreen", "func": "skyblue"},
+            {
+                "str": "lightgreen",
+                "func": "skyblue",
+                "bound": "red",
+            },
             "gray",
         ),
         "edge_color": "black",
