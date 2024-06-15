@@ -1467,3 +1467,20 @@ def test_nesting_funcs_with_bound():
     pipeline.nest_funcs(["c", "d"], "d")
     assert pipeline("d", a="a", b="b") == "abb2"
     assert len(pipeline.functions) == 1
+
+
+def test_duplicate_output_name():
+    @pipefunc(output_name="c")
+    def f(x):
+        return x
+
+    pipeline1 = Pipeline([f])
+
+    @pipefunc(output_name="c")
+    def g(foo):
+        return foo
+
+    pipeline2 = Pipeline([g])
+
+    with pytest.raises(ValueError, match="The provided `output_name='c'` cannot be identical"):
+        pipeline1 | pipeline2
