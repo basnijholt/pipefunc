@@ -140,10 +140,8 @@ def load_outputs(*output_names: str, run_folder: str | Path) -> Any:
     """Load the outputs of a run."""
     run_folder = Path(run_folder)
     run_info = RunInfo.load(run_folder)
-    outputs = [
-        _load_parameter(output_name, run_info, run_info.init_store())
-        for output_name in output_names
-    ]
+    store = run_info.init_store()
+    outputs = [_load_parameter(output_name, run_info, store) for output_name in output_names]
     outputs = [_maybe_load_file_array(o) for o in outputs]
     return outputs[0] if len(output_names) == 1 else outputs
 
@@ -540,6 +538,17 @@ def _submit_func(
     executor: Executor | None,
 ) -> _KwargsTask:
     kwargs = _func_kwargs(func, run_info, store)
+    return _submit_task(func, kwargs, run_info, store, fixed_indices, executor)
+
+
+def _submit_task(
+    func: PipeFunc,
+    kwargs: dict[str, Any],
+    run_info: RunInfo,
+    store: dict[str, StorageBase],
+    fixed_indices: dict[str, int | slice] | None,
+    executor: Executor | None,
+) -> _KwargsTask:
     if func.mapspec and func.mapspec.inputs:
         args = _prepare_submit_map_spec(
             func,
@@ -697,3 +706,51 @@ def _get_partially_reduced_axes(
     assert func.mapspec is not None
     spec = next(spec for spec in func.mapspec.inputs if spec.name == name)
     return tuple(ax for ax, spec_ax in zip(axes[name], spec.axes) if spec_ax is None)
+
+
+class TestResult(NamedTuple):
+    function: str
+    kwargs: dict[str, Any]
+    expected_output: Any
+    actual_output: Any
+
+
+def compare(
+    pipeline: Pipeline,
+    run_folder: str | Path,
+    output_names: set[str] | None = None,
+) -> dict[str, TestResult]:
+    """Rerun the pipeline and compare the outputs to the stored outputs.
+
+    Parameters
+    ----------
+    pipeline
+        The pipeline that was run.
+    run_folder
+        The folder where the pipeline run was stored.
+    output_names
+        The output(s) to test. If ``None``, all outputs are tested.
+
+    """
+    assert output_names is None or all(isinstance(o, str) for o in output_names)
+    run_info = RunInfo.load(run_folder)
+    store = run_info.init_store()
+    results = {}
+    new_run_folder = Path(tempfile.mkdtemp())
+    new_run_info = run_info.copy(run_folder=new_run_folder)
+    for func in pipeline.functions:
+        if output_names is not None and set(at_least_tuple(func.output_name)) not in output_names:
+            continue
+        kwargs = _func_kwargs(func, run_info, store)
+        task = _submit_task(func, kwargs, new_run_info, store, None, None)
+        output = _process_task(func, task, new_run_folder, store, None)
+        for output_name, result in output.items():
+            expected_output = load_outputs(output_name, run_folder=run_info.run_folder)
+            actual_output = result.output
+            results[output_name] = TestResult(
+                function=result.function,
+                kwargs=result.kwargs,
+                expected_output=expected_output,
+                actual_output=actual_output,
+            )
+    return results
